@@ -1,14 +1,17 @@
 # A trivial OPC-UA client-server application
 
-This lab will guide you through the implementation of a simple OPC UA application to illustrate client-server communications. Both ends will run locally:
-* Server: upon request reads and returns the date and time from the local clock
-* Client: reads a timestamp from the server and prints it
+This lab will guide you through the implementation of a OPC UA weather application to illustrate client-server communications. This lab implements Node-OPCUA's Weather Station tutorial to aggregate data from different weather station on the server and then the client will pull data for it's particular interests. Both ends will run locally:
+* Server: pulls data from a REST API call and aggregates the data in a OPC UA server framework Upon request reads and returns temperature, pressure, or humidity
+* Client: reads weather data from the server and prints it
+
+The original tutorial can be located here:
+ http://node-opcua.github.io/tutorial/2015/07/05/weather-station.html
 
 In OPC UA, servers may provide data as variables, like e.g. a measurement of a physical magnitude. Some variables may also be built-in.
 
-We are going to implement a very simple server and then a client gathering the built-in date and time information. This will just scratch the surface of OPC-UA communications.
+This will just scratch the surface of OPC-UA communications.
 
-Server and client implementation are split in a set of small steps to illustrate every concept independently. The complete files are also provided for reference as [trivial_client.c](./trivial_client.c) and [trivial_server.c](./trivial_server.c). The source code files are included verbatim from the [open62541](https://github.com/open62541/open62541) [Tutorials](https://open62541.org/doc/0.2/tutorials.html) and distributed under the same terms: Public Somain (Creative Commons CC0).
+Server and client implementation are split in a set of small steps to illustrate every concept independently. The complete files are also provided for reference as [client.c](./client.c) and [weather.js](./weather.js). Other source code files are included verbatim from the [open62541](https://github.com/open62541/open62541) [Tutorials](https://open62541.org/doc/0.2/tutorials.html) and distributed under the same terms: Public Somain (Creative Commons CC0).
 
 A working [Makefile](./Makefile) is also provided.
 
@@ -16,9 +19,173 @@ A working [Makefile](./Makefile) is also provided.
 # Server
 
 
-## Interruptable process
+## Accessing Weather Data through API
 
-Let's start with a minimal process that we can interrupt with Ctrl-C. The code would be:
+You will need to register to [worldweatheronline](https://developer.worldweatheronline.com/auth/register) to obtain your API key.
+![](./images/WeatherSignUp.png)
+
+Once registered add a trial key for Local Weather API.  Copy the key and paste it into a file named [worldweatheronline.key](./worldweatheronline.key)
+
+Let's test the key by accessing the REST API.  In your browser open a new tab and enter
+http://api.worldweatheronline.com/free/v2/weather.ashx?q=London&format=json&key=YOUR_API_KEY
+
+Let's start with a simple Javascript that request weather data from London and print out the JSON message. The code would be
+
+``` javascript
+/*global require,console,setInterval */
+Error.stackTraceLimit = Infinity;
+
+/*global require,setInterval,console */
+var cities = [ 'London','Paris','New York','Moscow','Ho chi min','Benjing','Reykjavik' ,'Nouakchott','Ushuaia' ,'Longyearbyen'];
+// read the World Weather Online API key.
+var fs = require("fs");
+var key = fs.readFileSync("worldweatheronline.key");
+function getCityWeather(city,callback) {
+    var api_url="http://api.worldweatheronline.com/premium/v1/weather.ashx?q="+city+"+&format=json&key="+ key;
+    var options = {
+        url: api_url,
+        "content-type": "application-json",
+        json: ""
+    };
+    var request = require("request");
+    request(options, function (error, response, body) {
+      if (!error && response.statusCode === 200) {
+        var data  = perform_read(city,body);
+        callback(null,data);
+      } else {
+        callback(error);
+      }
+    });
+}
+function perform_read(city,body) {
+    var obj = JSON.parse(body);
+    var current_condition = obj.data.current_condition[0];
+    var request = obj.data.request[0];
+    return  {
+        city:               request.query,
+        date:               new Date(),
+        observation_time:   current_condition.observation_time,
+        temperature:        parseFloat(current_condition.temp_C),
+        humidity:           parseFloat(current_condition.humidity),
+        pressure:           parseFloat(current_condition.pressure),
+        weather:            current_condition.weatherDesc.value
+    };
+}
+getCityWeather("London",function(err,data) {
+         if (!err) {
+            console.log("London",JSON.stringify(data, null," "));
+         }  else {
+            console.log("error city","London" , err);
+         }
+     });
+
+```
+Now lets query more than one city in our array and put a timer on it for 10 seconds
+```Javascript
+var city_data_map = { };
+// a infinite round-robin iterator over the city array
+var next_city = function(arr) {
+   var counter = arr.length;
+   return function() {
+      counter += 1;
+      if (counter>=arr.length) {
+        counter = 0;
+      }
+      return arr[counter];
+   };
+}(cities);
+function update_city_data(city) {
+    getCityWeather(city,function(err,data) {
+         if (!err) {
+            city_data_map[city] = data;
+            console.log(city,JSON.stringify(data, null," "));
+         }  else {
+            console.log("error city",city , err);
+         }
+     });
+}
+// make a API call every 10 seconds
+var interval = 10* 1000;
+setInterval(function() {
+     var city = next_city();
+     update_city_data(city);
+}, interval);
+
+```
+Great! Now that we are pulling data at a interval.  Let's put it somewhere. Using the OPC UA server framework lets organize the data.
+
+```Javascript
+var opcua = require("node-opcua");
+
+var server = new opcua.OPCUAServer({
+   port: 16664 // the port of the listening socket of the server
+});
+
+server.buildInfo.productName = "WeatherStation";
+server.buildInfo.buildNumber = "7658";
+server.buildInfo.buildDate = new Date(2014,5,2);
+function post_initialize() {
+    console.log("initialized");
+    function construct_my_address_space(server) {
+       // declare some folders
+       var citiesNode  = server.engine.addressSpace.addFolder("ObjectsFolder",{ browseName: "Cities"});
+       function create_CityNode(city_name) {
+           // declare the city node
+           var cityNode = server.engine.addressSpace.addFolder(citiesNode,{ browseName: city_name });
+           server.engine.addressSpace.addVariable({
+               componentOf: cityNode,
+               browseName: "Temperature",
+               dataType: "Double",
+               value: {  get: function () { return extract_value(city_name,"temperature"); } }
+           });
+           server.engine.addressSpace.addVariable({
+               componentOf: cityNode,
+               browseName: "Humidity",
+               dataType: "Double",
+               value: {  get: function () { return extract_value(city_name,"humidity"); } }
+           });
+           server.engine.addressSpace.addVariable({
+               componentOf: cityNode,
+               browseName: "Pressure",
+               dataType: "Double",
+               value: {  get: function () { return extract_value(city_name,"pressure"); } }
+           });
+       }
+       cities.forEach(function(city) {
+           create_CityNode(city);
+       });
+       function extract_value(city_name,property) {
+           var city = city_data_map[city_name];
+           if (!city) {
+               return opcua.StatusCodes.BadDataUnavailable
+           }
+           var value = city[property];
+           return new opcua.Variant({dataType: opcua.DataType.Double, value: value });
+       }
+    }
+    construct_my_address_space(server);
+    server.start(function() {
+        console.log("Server is now listening ... ( press CTRL+C to stop)");
+        console.log("port ", server.endpoints[0].port);
+        var endpointUrl = server.endpoints[0].endpointDescriptions()[0].endpointUrl;
+        console.log(" the primary server endpoint url is ", endpointUrl );        
+    });
+}
+server.initialize(post_initialize);
+
+```
+We now have a functioning server in OPC UA javascript collecting and aggregating data for consuming by the client/gateway.  Let's build a Client on the edge in C++ to interface with the data.
+
+First lets get a tool to help write the Client. Register and download UaExpert at https://www.unified-automation.com/downloads/opc-ua-clients/file/download/details/uaexpert-v140.html
+
+Once installed, open UaExpert and add a new server.  Use the url
+opc.tcp://nucuser-desktop:16664
+
+Click the connect button.
+
+We can now see the data on the server and how it is organized.
+
+In the Client window open a file named client.c
 
 ```c
 #include <signal.h>
