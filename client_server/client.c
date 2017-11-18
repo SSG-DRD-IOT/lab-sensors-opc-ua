@@ -26,7 +26,7 @@
 
 int main(void) {
 
-    UA_Client *client = UA_Client_new(UA_ClientConfig_standard);
+    UA_Client *client = UA_Client_new(UA_ClientConfig_default);
 
     /* List the endpoints that are found */
     
@@ -35,7 +35,7 @@ int main(void) {
     size_t endpointArraySize = 0;
 
     UA_StatusCode retval = UA_Client_getEndpoints(client,
-						  "opc.tcp://localhost:16664",
+						  "opc.tcp://localhost:4840",
 						  &endpointArraySize,
 						  &endpointArray);
 
@@ -71,7 +71,7 @@ int main(void) {
 
     /* Connect to the local server */
     
-    retval = UA_Client_connect(client, "opc.tcp://localhost:16664"); 
+    retval = UA_Client_connect(client, "opc.tcp://localhost:4840"); 
 
     /* If the connection fails delete the client and return */
     

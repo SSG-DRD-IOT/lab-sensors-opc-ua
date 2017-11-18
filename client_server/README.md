@@ -22,6 +22,7 @@ Let's start with a minimal OPC-UA process that we can interrupt with Ctrl-C. The
 
 ```c
 #include <signal.h>
+/* Include the OPC-UA open62541 header file */
 #include "open62541.h"
 
 UA_Boolean running = true;
@@ -73,11 +74,8 @@ by the actual server code.
 The first step is setting up the configuration for the server, and then creating it. The server is going to use the binary protocol over TCP, and listen on port 16664.
 
 ```c
-    UA_ServerConfig config = UA_ServerConfig_standard;
-    UA_ServerNetworkLayer networkLayer =
-        UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 16664);
-    config.networkLayers = &networkLayer;
-    config.networkLayersSize = 1;
+    UA_ServerConfig *config = UA_ServerConfig_new_default();
+
     UA_Server *server = UA_Server_new(config);
 ```
 At this point, the server is created but it is not yet running. This is achieved by:
@@ -89,7 +87,7 @@ The above code will stop the server whenever running becomes false. As we have s
 Finally, we need to clean-up the resources:
 ```c
     UA_Server_delete(server);
-    networkLayer.deleteMembers(&networkLayer);
+
 ```
 
 The full example should look like:
@@ -114,22 +112,15 @@ int main (void) {
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
-  UA_ServerConfig config = UA_ServerConfig_standard;
+  UA_ServerConfig *config = UA_ServerConfig_new_default();
 
-  UA_ServerNetworkLayer networkLayer = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 16664);
+  UA_Server *server = UA_Server_new(config);
 
-  config.networkLayers = &networkLayer;
-  config.networkLayersSize = 1;
+  UA_Server_run(server, &running);
 
-    UA_Server *server = UA_Server_new(config);
+  UA_Server_delete(server);
 
-    UA_Server_run(server, &running);
-
-    UA_Server_delete(server);
-
-    networkLayer.deleteMembers(&networkLayer);
-
-    return 0;
+  return 0;
   };
 ```
 
@@ -268,12 +259,7 @@ int main (void) {
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
-  UA_ServerConfig config = UA_ServerConfig_standard;
-
-  UA_ServerNetworkLayer networkLayer = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 16664);
-
-  config.networkLayers = &networkLayer;
-  config.networkLayersSize = 1;
+  UA_ServerConfig *config = UA_ServerConfig_new_default();
 
   UA_Server *server = UA_Server_new(config);
 
@@ -289,8 +275,6 @@ int main (void) {
   UA_Server_run(server, &running);
 
   UA_Server_delete(server);
-
-  networkLayer.deleteMembers(&networkLayer);
 
   return 0;
 }
@@ -419,12 +403,7 @@ int main (void) {
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
-  UA_ServerConfig config = UA_ServerConfig_standard;
-
-  UA_ServerNetworkLayer networkLayer = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 16664);
-
-  config.networkLayers = &networkLayer;
-  config.networkLayersSize = 1;
+  UA_ServerConfig *config = UA_ServerConfig_new_default();
 
   UA_Server *server = UA_Server_new(config);
 
@@ -440,8 +419,6 @@ int main (void) {
   UA_Server_run(server, &running);
 
   UA_Server_delete(server);
-
-  networkLayer.deleteMembers(&networkLayer);
 
   return 0;
 };
@@ -460,7 +437,7 @@ Now let's implement the client side. A minimal client to see if there are any en
 
 int main(void) {
 
-    UA_Client *client = UA_Client_new(UA_ClientConfig_standard);
+    UA_Client *client = UA_Client_new(UA_ClientConfig_default);
 
     /* List the endpoints that are found */
 
@@ -532,7 +509,7 @@ Information in OPC-UA is modeled as a hierarchy of nodes. Let's write some code 
 ```c
 /* Connect to the local server */
 
-retval = UA_Client_connect(client, "opc.tcp://localhost:16664");
+retval = UA_Client_connect(client, "opc.tcp://localhost:4840");
 
 /* If the connection fails delete the client and return */
 
@@ -611,7 +588,7 @@ The final program should look like this
 
 int main(void) {
 
-    UA_Client *client = UA_Client_new(UA_ClientConfig_standard);
+    UA_Client *client = UA_Client_new(UA_ClientConfig_default);
 
     /* List the endpoints that are found */
 
@@ -620,7 +597,7 @@ int main(void) {
     size_t endpointArraySize = 0;
 
     UA_StatusCode retval = UA_Client_getEndpoints(client,
-						  "opc.tcp://localhost:16664",
+						  "opc.tcp://localhost:4840",
 						  &endpointArraySize,
 						  &endpointArray);
 
@@ -738,14 +715,14 @@ int main(void) {
 Open a terminal and run the server:
 ```shell
 $ ./server
-[11/16/2017 23:54:17.588] info/network	TCP network layer listening on opc.tcp://nucuser-desktop:16664
+[11/16/2017 23:54:17.588] info/network	TCP network layer listening on opc.tcp://nucuser-desktop:4840
 ```
 
 Now open another terminal and run the client:
 ```shell
 $ ./client
 1 endpoints found
-URL of endpoint 0 is opc.tcp://localhost:16664
+URL of endpoint 0 is opc.tcp://localhost:4840
 Browsing nodes in objects folder:
 NAMESPACE NODEID           BROWSE NAME      DISPLAY NAME    
 0         61               FolderType       FolderType      
