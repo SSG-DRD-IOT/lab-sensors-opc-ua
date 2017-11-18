@@ -71,7 +71,7 @@ Now we will replace the loop:
 ```
 by the actual server code.
 
-The first step is setting up the configuration for the server, and then creating it. The server is going to use the binary protocol over TCP, and listen on port 16664.
+The first step is setting up the configuration for the server, and then creating it. The server is going to use the binary protocol over TCP, and listen on port 4840.
 
 ```c
     UA_ServerConfig *config = UA_ServerConfig_new_default();
@@ -446,7 +446,7 @@ int main(void) {
     size_t endpointArraySize = 0;
 
     UA_StatusCode retval = UA_Client_getEndpoints(client,
-						  "opc.tcp://localhost:16664",
+						  "opc.tcp://localhost:4840",
 						  &endpointArraySize,
 						  &endpointArray);
 
@@ -633,7 +633,7 @@ int main(void) {
 
     /* Connect to the local server */
 
-    retval = UA_Client_connect(client, "opc.tcp://localhost:16664");
+    retval = UA_Client_connect(client, "opc.tcp://localhost:4840");
 
     /* If the connection fails delete the client and return */
 
