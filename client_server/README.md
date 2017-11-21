@@ -65,29 +65,28 @@ Let's implement the actual server.
 
 Now we will replace the loop:
 ```c
-    // Our OPC UA server code will replace the loop below
-    while (running) {
-    }
+// Our OPC UA server code will replace the loop below
+while (running) {
+}
 ```
 by the actual server code.
 
 The first step is setting up the configuration for the server, and then creating it. The server is going to use the binary protocol over TCP, and listen on port 4840.
 
 ```c
-    UA_ServerConfig *config = UA_ServerConfig_new_default();
+UA_ServerConfig *config = UA_ServerConfig_new_default();
 
-    UA_Server *server = UA_Server_new(config);
+UA_Server *server = UA_Server_new(config);
 ```
 At this point, the server is created but it is not yet running. This is achieved by:
 ```c
-    UA_Server_run(server, &running);
+UA_Server_run(server, &running);
 ```
 The above code will stop the server whenever running becomes false. As we have seen above, the signal handler will update running.
 
 Finally, we need to clean-up the resources:
 ```c
-    UA_Server_delete(server);
-
+UA_Server_delete(server);
 ```
 
 The full example should look like:
@@ -129,6 +128,8 @@ Now let's compile again:
 
 $ gcc server.c open62541.c -o server
 ```
+
+## Adding Factory Robots
 
 We now have a simple OPC-UA factory server running.  Let's add some robots to our server as Object Nodes. Let's do this using object orientation so if there are other machines or stuff that we want to add to this factory server later it will be easier.
 
@@ -427,7 +428,7 @@ int main (void) {
 ```
 Now that we have a server running with some information in some nodes.  Let's build a client to query the server.
 
-# Client
+## Client to Find OPC-UA Endpoints
 
 Now let's implement the client side. A minimal client to see if there are any endpoints to query would look like this:
 ```c
@@ -736,3 +737,9 @@ NAMESPACE NODEID           BROWSE NAME      DISPLAY NAME
 ```
 
 Congratulations! You just made your client-server application work.
+
+
+## Additional Information
+* [OPC Foundation](https://opcfoundation.org/about/opc-technologies/opc-ua/) - The official OPC Foundation group
+* [OPC Unified Architecture - Wikipedia](https://en.wikipedia.org/wiki/OPC_Unified_Architecture)
+* [What is OPC? UA in a Minute - YouTube](https://www.youtube.com/watch?v=-tDGzwsBokY)
