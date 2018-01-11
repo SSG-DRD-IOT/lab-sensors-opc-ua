@@ -45,18 +45,7 @@ int main (void) {
 
 }
 ```
-
-We compile and test this example:
-```shell
-
-$ gcc server.c open62541.c -o server
-$ ./server
-<Press Ctrl-C>
-^C[09/26/2017 12:26:24.599] info/userland	received ctrl-c
-$
-```
-
-As you can see, when our process receives SIGINT or SIGTERM, the handler is run, a message is printed by UA_LOG_INFO, and the process exits.
+When you deploy this code, you can see, when our process receives SIGINT or SIGTERM, the handler is run, a message is printed by UA_LOG_INFO, and the process exits.
 
 
 ## Minimal skeleton
@@ -74,13 +63,15 @@ by the actual server code.
 The first step is setting up the configuration for the server, and then creating it. The server is going to use the binary protocol over TCP, and listen on port 4840.
 
 ```c
-UA_ServerConfig *config = UA_ServerConfig_new_default();
-
-UA_Server *server = UA_Server_new(config);
+  UA_ServerConfig config = UA_ServerConfig_standard;
+  UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 4840);
+  config.networkLayers = &nl;
+  config.networkLayersSize = 1;
+  UA_Server *server = UA_Server_new(config);
 ```
 At this point, the server is created but it is not yet running. This is achieved by:
 ```c
-UA_Server_run(server, &running);
+  UA_Server_run(server, &running);
 ```
 The above code will stop the server whenever running becomes false. As we have seen above, the signal handler will update running.
 
@@ -107,26 +98,21 @@ static void stopHandler(int sig) {
 };
 
 int main (void) {
-
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
-  UA_ServerConfig *config = UA_ServerConfig_new_default();
-
+  UA_ServerConfig config = UA_ServerConfig_standard;
+  UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 4840);
+  config.networkLayers = &nl;
+  config.networkLayersSize = 1;
   UA_Server *server = UA_Server_new(config);
-
+  
   UA_Server_run(server, &running);
 
   UA_Server_delete(server);
-
-  return 0;
+  
+  return 0; 
   };
-```
-
-Now let's compile again:
-```shell
-
-$ gcc server.c open62541.c -o server
 ```
 
 ## Adding Factory Robots
@@ -137,14 +123,13 @@ First lets add an a function for a Generic Object Node called objectType
 
 ```c
 
-
 UA_NodeId robotTypeId0 = {1, UA_NODEIDTYPE_NUMERIC, {1001}};
 
 static void defineObjectTypes(UA_Server *server) {
 
   /* Define the object type for "Object" */
 
-  UA_NodeId objectTypeId;
+  UA_NodeId objectTypeId; 
 
   /* Set the Attributes for the Object */
 
@@ -155,10 +140,9 @@ static void defineObjectTypes(UA_Server *server) {
 
   UA_Server_addObjectTypeNode(server, UA_NODEID_NULL,
                               UA_NODEID_NUMERIC(0, UA_NS0ID_BASEOBJECTTYPE),
-			                        UA_NODEID_NUMERIC(0, UA_NS0ID_HASSUBTYPE),
-			                        UA_QUALIFIEDNAME(1, "ObjectType"), objectAttributes,
-			                        NULL, &objectTypeId);
-
+			      UA_NODEID_NUMERIC(0, UA_NS0ID_HASSUBTYPE),
+			      UA_QUALIFIEDNAME(1, "ObjectType"), objectAttributes,
+			      NULL, &objectTypeId);
 ```
 Now lets add some Object Nodes to the Object Node for various different objects in our factory.
 
@@ -260,10 +244,12 @@ int main (void) {
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
-  UA_ServerConfig *config = UA_ServerConfig_new_default();
-
+  UA_ServerConfig config = UA_ServerConfig_standard;
+  UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 4840);
+  config.networkLayers = &nl;
+  config.networkLayersSize = 1;
   UA_Server *server = UA_Server_new(config);
-
+  
   defineObjectTypes(server);
 
   addRobotObject(server, "robot 0");
@@ -404,8 +390,10 @@ int main (void) {
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
-  UA_ServerConfig *config = UA_ServerConfig_new_default();
-
+  UA_ServerConfig config = UA_ServerConfig_standard;
+  UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 4840);
+  config.networkLayers = &nl;
+  config.networkLayersSize = 1;
   UA_Server *server = UA_Server_new(config);
 
   defineObjectTypes(server);
