@@ -26,7 +26,7 @@ See [What is OPC?](https://opcfoundation.org/about/what-is-opc/)
 We are going to use an open source OPC UA stack: [open62541](https://github.com/open62541/open62541)
 
 open62541 can be compiled to generate a single header and source code file, than can
-then be integrated in your project. This is enabled by the option:
+then be integrated in your project. This is enabled by the option in the subsequent steps:
 
 ```shell
 UA_ENABLE_AMALGAMATION
@@ -43,7 +43,7 @@ export LAB_DIR=$HOME/labs
 Follow the next steps to generate the open62541 header and code:
 ```bash
 mkdir -p ${LAB_DIR}
-cd ${HOME}/intel/workshop
+cd ${LAB_DIR}
 git clone https://github.com/open62541/open62541.git
 cd open62541
 mkdir build
