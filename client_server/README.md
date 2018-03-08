@@ -1,5 +1,8 @@
 # A OPC-UA client-server application
 
+Open Platform Communications - Unified Architecture
+
+
 This lab will guide you through the implementation of a OPC UA application to illustrate client-server communications. Both ends will run locally:
 * Server: contains information about certain robots at factories that perform a certain task
 * Client: queries the server for robots to see if there is a robot available for certain task
