@@ -1,6 +1,6 @@
 # A OPC-UA client-server application
 
-Open Platform Communications - Unified Architecture
+**Open Platform Communications - Unified Architecture
 
 
 This lab will guide you through the implementation of a OPC UA application to illustrate client-server communications. Both ends will run locally:
