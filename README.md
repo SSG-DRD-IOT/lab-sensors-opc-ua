@@ -1,8 +1,8 @@
 # OPC-UA Lab
 
-This lab will guide you through the implementation of a simple OPC UA
-application to illustrate client-server communications. Both ends will run
-locally:
+** Please Note ** This lab can be accomplished either through the Arduino Create web environment or by downloading open62541, an open source OPC-UA libary and compiling it and your application locally on the Up2 board.
+
+This lab will guide you through the implementation of a simple OPC UA application to illustrate client-server communications. Both ends will run locally:
 * Server: upon request reads and returns the date and time from the local clock
 * Client: reads a timestamp from the server and prints it
 
