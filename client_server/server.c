@@ -141,6 +141,12 @@ int main (void) {
   signal(SIGINT, stopHandler);
   signal(SIGTERM, stopHandler);
 
+  UA_ServerConfig config = UA_ServerConfig_standard;
+  UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(UA_ConnectionConfig_standard, 4840);
+  config.networkLayers = &nl;
+  config.networkLayersSize = 1;
+  UA_Server *server = UA_Server_new(config);
+	
   UA_ServerConfig *config = UA_ServerConfig_new_default();
 
   UA_Server *server = UA_Server_new(config);
