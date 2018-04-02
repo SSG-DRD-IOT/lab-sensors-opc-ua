@@ -26,7 +26,7 @@
 
 int main(void) {
 
-    UA_Client *client = UA_Client_new(UA_ClientConfig_default);
+    UA_Client *client = UA_Client_new(UA_ClientConfig_standard);
 
     /* List the endpoints that are found */
     
