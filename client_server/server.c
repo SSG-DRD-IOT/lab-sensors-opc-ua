@@ -146,10 +146,6 @@ int main (void) {
   config.networkLayers = &nl;
   config.networkLayersSize = 1;
   UA_Server *server = UA_Server_new(config);
-	
-  UA_ServerConfig *config = UA_ServerConfig_new_default();
-
-  UA_Server *server = UA_Server_new(config);
 
   defineObjectTypes(server);
  
