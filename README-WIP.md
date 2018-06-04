@@ -2,7 +2,8 @@
 
 This lab will guide you through the synchonizing Network and Real-Time Clock domains for OPC UA application to illustrate multiple client-server communications accross a network.
 
-** PTP time-synchronization ** 
+**PTP time-synchronization**
+
 The Precision Time Protocol (PTP) is a protocol used to synchronize clocks throughout a computer network. On a local area network, it achieves clock accuracy in the sub-microsecond range, making it suitable for measurement and control systems.
 https://www.nist.gov/el/intelligent-systems-division-73500/ieee-1588 
 
