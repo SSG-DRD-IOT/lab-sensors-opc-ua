@@ -9,6 +9,9 @@ https://www.nist.gov/el/intelligent-systems-division-73500/ieee-1588
  IEEE standard 1588 Precision Time Protocol (PTP) support is provide in every linux distribution including http://manpages.ubuntu.com/manpages/bionic/man8/ptp4l.8.html 
 ```shell
 $ sudo apt-get install ethtool linuxptp tshark
+git clone https://github.com/SSG-DRD-IOT/lab-sensors-opc-ua.git -b milano-workshop
+mv lab-sensors-opc-ua lab-timing-opc-ua
+cd lab-timing-opc-ua
 ```
 
 At start we need to discover what time-synchonization feature our machine Network Interface Controller(NIC) are capable of : 
@@ -63,7 +66,11 @@ $ sudo pmc -u -b 0 'GET TIME_STATUS_NP' | awk '/ingress_time/ { printf("%s.%s\n"
 To better understand how Ethernet traffic introduce PTP Master and Slave clock jitter we capture port 319 and 320 traffic and build statistics over significantly large number PTP packets (NB: TAI vs UTC time diff is 36s today e.q 3600000000.0 in epoch time) 
 
 ```shell
-sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && $ tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==3 -Tfields -e frame.number -e frame.time_epoch -e ptp.v2.fu.preciseorigintimestamp.seconds -e ptp.v2.fu.preciseorigintimestamp.nanoseconds > ptptmp.out && python ./ptp-ts_offset.py -i ptptmp.out -o 3600000000.0 > ptptmp.out.gp && head ptptmp.out.gp && ./stats.sh -c 1 -f ptptmp.out.gp
+sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==3 -Tfields \
+-e frame.number \
+-e frame.time_epoch \
+-e ptp.v2.fu.preciseorigintimestamp.seconds \
+-e ptp.v2.fu.preciseorigintimestamp.nanoseconds > ptptmp.out && python ./ptp-ts_offset.py -i ptptmp.out -o 3600000000.0 > ptptmp.out.gp && head ptptmp.out.gp && ./stats.sh -c 1 -f ptptmp.out.gp
 149.0
 216.0
 304.0
@@ -84,7 +91,11 @@ count:   9
 
 IEEE1588v2 PTP Traffic can be easily analyzed using [Wireshark PTP Filters](./tshark_ptp-filters_fields.md)  
 ```shell
-sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==3 -Tfields -e frame.number -e frame.time_epoch -e ptp.v2.dr.receivetimestamp.seconds -e ptp.v2.dr.receivetimestamp.nanoseconds > ptptmp.out && python ./ptp-ts_offset.py -i ptptmp.out -o 3600000000.0 > ptptmp.out.gp && head ptptmp.out.gp && ./stats.sh -c 1 -f ptptmp.out.gp
+sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==3 -Tfields \
+-e frame.number \
+-e frame.time_epoch \
+-e ptp.v2.dr.receivetimestamp.seconds \
+-e ptp.v2.dr.receivetimestamp.nanoseconds > ptptmp.out && python ./ptp-ts_offset.py -i ptptmp.out -o 3600000000.0 > ptptmp.out.gp && head ptptmp.out.gp && ./stats.sh -c 1 -f ptptmp.out.gp
 ```
 
 Congratulations! You just made and measured your board time-synchronized between the master and slave device.
@@ -582,7 +593,11 @@ $ ./opc-ua-multiple-client opc.tcp://<server#0>:4840 -d <cycle-time in us .ex 25
 OPC-UA _UA_ReadRequest_ (opcua.servicenodeid.numeric==634) can be easily analyzed & measured using [Wireshark OPC-UA Binary Filters] (./tshark_opcua-filters_fields.md)
 
 ```shell
-$ sudo tcpdump -i enp2s0 -w tmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 4840 or port 319 or port 320 -c 10000 && tshark -r tmp.pcap -t e -2 -R opcua.servicenodeid.numeric==634 -E separator=, -E header=n -Tfields -e frame.number -e frame.time_epoch -e opcua.nodeid.string  -e  opcua.datavalue.SourceTimestamp > tmp.out && python ./opcua-ts_offset.py -i tmp.out -o 420000000.0 > tmp.out.off && head tmp.out.off && ./stats.sh -c 1 -f tmp.out.off
+$ sudo tcpdump -i enp2s0 -w tmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 4840 or port 319 or port 320 -c 10000 && tshark -r tmp.pcap -t e -2 -R opcua.servicenodeid.numeric==634 -E separator=, -E header=n -Tfields \
+-e frame.number \
+-e frame.time_epoch \
+-e opcua.nodeid.string  \
+-e  opcua.datavalue.SourceTimestamp > tmp.out && python ./opcua-ts_offset.py -i tmp.out -o 420000000.0 > tmp.out.off && head tmp.out.off && ./stats.sh -c 1 -f tmp.out.off
 tcpdump: listening on enp2s0, link-type EN10MB (Ethernet), capture size 262144 bytes
 1000 packets captured
 1002 packets received by filter
