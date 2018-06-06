@@ -1,35 +1,3 @@
-/******************************************************************************
- *
- * Copyright (c) 2017-2018, Intel Corporation
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are met:
- *
- *  1. Redistributions of source code must retain the above copyright notice,
- *     this list of conditions and the following disclaimer.
- *
- *  2. Redistributions in binary form must reproduce the above copyright
- *     notice, this list of conditions and the following disclaimer in the
- *     documentation and/or other materials provided with the distribution.
- *
- *  3. Neither the nme of the copyright holder nor the names of its
- *     contributors may be used to endorse or promote products derived from
- *     this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
- * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
- * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
- * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
- * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
- * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
- * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- *****************************************************************************/
 
 #include <dirent.h>
 #include <errno.h>
@@ -44,9 +12,12 @@
 
 #include <sys/ioctl.h>
 
-#include <linux/ptp_clock.h>
+#include <sys/time.h>
+#include <sys/timex.h>
+#include <linux/rtc.h>
 #include <linux/version.h>
 
+#define RTC_DEVICE "/dev/rtc0"
 #define DEFAULT_ETS_CHAN 1
 #define DEFAULT_ETS_INDEX 1
 #define MAX_CHANNELS 2
@@ -67,7 +38,7 @@ int running = 1;
 #endif /* ndef USE_OPEN62541 */
 int verbose;
 
-#define LOG(x...)do { if (verbose) fprintf(stderr, x); } while (0)
+#define LOG(x...)do { if (verbose) fprintf(stdout, x); } while (0)
 
 #ifdef USE_OPEN62541
 static UA_StatusCode read_ets(void *handle, const UA_NodeId nodeId,
@@ -78,13 +49,14 @@ static UA_StatusCode read_ets(void *handle, const UA_NodeId nodeId,
   static int read_ets(int fd)
 #endif /* ndef USE_OPEN62541 */
 {
-  struct pollfd pfd;
-  unsigned long n;
-  int ready, timeout_ms;
-  char buf[32];
-  #ifdef USE_OPEN62541
-  int fd = *(int *)handle;
 
+  struct tm tm;
+  unsigned long n, *epoch_p;
+  int rc=-1;
+  char buf[32];
+#ifdef USE_OPEN62541
+  int fd = *(int *)handle;
+  
   if (range) {
     value->hasStatus = true;
     value->status = UA_STATUSCODE_BADINDEXRANGEINVALID;
@@ -92,34 +64,25 @@ static UA_StatusCode read_ets(void *handle, const UA_NodeId nodeId,
   }
 #endif /* def USE_OPEN62541 */
 
-  pfd.fd = fd;
-  pfd.events = POLLIN;
-  pfd.revents = 0;
-  timeout_ms = 100;
-
-  ready = poll(&pfd, 1, timeout_ms);
-  if (ready < 0) {
-    fprintf(stderr, "Failed to poll: %d (%s)\n", errno, strerror(errno));
-    return -1;
-  } else if (ready == 0) {
-    #ifdef USE_OPEN62541
+  rc = ioctl (fd, RTC_RD_TIME, &tm);
+  /* RTC_RD_TIME can fail when the device driver detects
+     that the RTC isn't running or contains invalid data.
+     Such failure has been detected earlier, unless: We used
+     noint_fallback=1 to get busywait_uip_fall() as fallback.
+     Or: UIE interrupts do beat, but RTC is invalid. */
+  if (rc == -1) {
+    fprintf(stderr, "RTC_RD_TIME failed\n");
+#ifdef USE_OPEN62541
     value->hasValue = false;
     return UA_STATUSCODE_GOOD;
-#else /* ndef USE_OPEN62541 */
+#else
     return 0;
-#endif /* ndef USE_OPEN62541 */
+#endif    
   }
-
-  while (ready-- > 0) {
-    n = read(fd, &e, sizeof(e));
-    if (n != sizeof(e)) {
-      fprintf(stderr, "read returns %lu bytes, expecting %lu bytes\n", n, sizeof(e));
-      return -1;
-    }
-
-    LOG("%d event index %d at %lld.%09u\n", ready, e.index, e.t.sec, e.t.nsec);
-  }
-  snprintf(buf, sizeof(buf), "%lld.%09u", e.t.sec, e.t.nsec);
+  
+  LOG("event at %4d/%.2d/%.2d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+  
+  snprintf(buf, sizeof(buf), "%4d/%.2d/%.2d-%02d:%02d:%02d", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour , tm.tm_min, tm.tm_sec);
 
   #ifdef USE_OPEN62541
   UA_String string = UA_String_fromChars(buf);
@@ -140,7 +103,10 @@ static UA_StatusCode read_ets(void *handle, const UA_NodeId nodeId,
 static int get_ets(int fd, int index)
 {
 
-  #ifdef USE_OPEN62541
+  struct tm tm;
+  int rc=-1;
+
+#ifdef USE_OPEN62541
   /* Init the server. */
   UA_ServerNetworkLayer nl = UA_ServerNetworkLayerTCP(
 						      UA_ConnectionConfig_standard, DEFAULT_OPC_UA_PORT);
@@ -179,6 +145,25 @@ static int get_ets(int fd, int index)
 				      data_source, &data_source_id);
 #endif /* def USE_OPEN62541 */
 
+  rc = ioctl (fd, RTC_RD_TIME, &tm);
+  /* RTC_RD_TIME can fail when the device driver detects
+     that the RTC isn't running or contains invalid data.
+     Such failure has been detected earlier, unless: We used
+     noint_fallback=1 to get busywait_uip_fall() as fallback.
+     Or: UIE interrupts do beat, but RTC is invalid. */
+  if (rc == -1)
+  {
+    perror("RTC_RD_TIME ");
+#ifdef USE_OPEN62541
+    UA_Server_delete(server);
+    nl.deleteMembers(&nl);
+#endif /* def USE_OPEN62541 */
+    return -1;
+  }  
+
+  LOG("RTC_RD_TIME event at %4d/%.2d/%.2d %02d:%02d:%02d\n", tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday, tm.tm_hour, tm.tm_min, tm.tm_sec);
+
+  
 #ifdef USE_OPEN62541
   /* Run the server loop. */
   UA_Server_run(server, &running);
@@ -209,15 +194,18 @@ static void usage(char *prog_name)
   fprintf(stderr,
 	  "Usage: %s [options]\n"
 	  "Options:\n"
+	  "  -d name     RTC device to open.\n"
+	  "     Default: %s\n"
 	  "  -h          Print this message and exit.\n"
 	  "  -v          Verbose output\n"
 	  "",
-	  prog_name);
+	  prog_name,
+	  RTC_DEVICE);
 }
 
 int main(int argc, char *argv[])
 {
-  char *prog_name;
+  char *prog_name, *rtc_dev;
   clockid_t clk_id;
   int c_ets, i_ets;
   int fd, opt;
@@ -231,8 +219,11 @@ int main(int argc, char *argv[])
   i_ets = DEFAULT_ETS_INDEX;
 
   /* Parse command line arguments. */
-  while ((opt = getopt(argc, argv, ":hv")) != EOF) {
+  while ((opt = getopt(argc, argv, "d:hv")) != EOF) {
     switch (opt) {
+    case 'd':
+      rtc_dev = optarg;
+      break;
     case 'h':
       usage(prog_name);
       return 0;
@@ -246,6 +237,13 @@ int main(int argc, char *argv[])
   }
 
   LOG("Hello from %s!\n", prog_name);
+
+  fd = open(rtc_dev, O_RDWR);
+  if (fd < 0) {
+    fprintf(stderr, "Failed to open %s: %d (%s)\n", rtc_dev, errno, strerror(errno));
+    return -1;
+  }
+  LOG("RTC device: %s\n", rtc_dev);
 
   /* These macros are defined in linux/posix-timers.h, but not able to
    * include the file.
