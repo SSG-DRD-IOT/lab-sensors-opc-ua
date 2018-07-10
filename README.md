@@ -17,7 +17,13 @@ cd lab-timing-opc-ua
 At start we need to discover what time-synchonization feature our machine Network Interface Controller(NIC) are capable of : 
 ```shell
 $ sudo ethtool -T enp2s0
-$ sudo ethtool -T enp3s0
+Capabilities:
+        software-transmit     (SOF_TIMESTAMPING_TX_SOFTWARE)
+        software-receive      (SOF_TIMESTAMPING_RX_SOFTWARE)
+        software-system-clock (SOF_TIMESTAMPING_SOFTWARE)
+PTP Hardware Clock: none
+Hardware Transmit Timestamp Modes: none
+Hardware Receive Filter Modes: none
 ```
 
 For UP2, unfortunatly RT8186G NIC doesn't provide any HW time-synchonization features, unlike most intel NICs : i210, i211, e1000, i350,... (.e.g. expose /dev/ptp0 device providing L2/UPDv4/UPDv6 HW-offload of Announce/Sync/Follow_Up/Delay_Req/Delay_Resp/... messages communication, extenal HW-timestamping from an Free Running Timer, Pulse-Per-Second on External Pins,...).
@@ -41,32 +47,30 @@ sudo pmc -u -b 0 'GET CURRENT_DATA_SET'
 sudo pmc -u -b 0 'GET PORT_DATA_SET'
 ```
 
-Adjust RTC and System clocks :  
+Adjust RTC and System clocks:
 ```shell
-$ sudo hwclock --rtc /dev/rtc0 && sudo hwclock --utc
-Tue 05 Jun 2018 09:22:42 AM PDT  .045091 seconds
-Tue 05 Jun 2018 09:23:07 AM PDT  .697110 seconds
+$ sudo hwclock -u --rtc /dev/rtc0 && sudo date -u
+Tue 05 Jun 2018 09:22:42 UTC  .045091 seconds
+Tue 05 Jun 2018 09:23:07 UTC
 
 $ chmod +x ./adjtimex
 $ sudo ./adjtimex --adjust
 
-$ sudo hwclock --rtc /dev/rtc0 && sudo hwclock --utc
-Tue 05 Jun 2018 09:26:50 AM PDT  .201350 seconds
-Tue 05 Jun 2018 09:26:51 AM PDT  .013758 seconds
+$ sudo hwclock -u --rtc /dev/rtc0 && sudo date -u
+Tue 05 Jun 2018 09:26:50 UTC  .201350 seconds
+Tue 05 Jun 2018 09:26:51 UTC
 ```
 
-Finally, we link the specific NIC PTP time-synchronized clock to the always-runnning RTC clock with _phc2sys_ as followed:
+Finally, we check the specific NIC PTP time-synchronized clocks system as followed:
 
 ```shell
-$ sudo phc2sys -s CLOCK_REALTIME -w -m
-
 $ sudo pmc -u -b 0 'GET TIME_STATUS_NP' | awk '/ingress_time/ { printf("%s.%s\n", substr($2, 1, 10), substr($2, 11, 18))}' && ./adjtimex -p | awk '/raw time:/ { print  $6 }'
 ```
 
 To better understand how Ethernet traffic introduce PTP Master and Slave clock jitter we capture port 319 and 320 traffic and build statistics over significantly large number PTP packets (NB: TAI vs UTC time diff is 36s today e.q 3600000000.0 in epoch time) 
 
 ```shell
-sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==3 -Tfields \
+sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==2 -Tfields \
 -e frame.number \
 -e frame.time_epoch \
 -e ptp.v2.fu.preciseorigintimestamp.seconds \
