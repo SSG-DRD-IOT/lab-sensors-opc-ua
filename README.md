@@ -73,6 +73,8 @@ $ sudo pmc -u -b 0 'GET TIME_STATUS_NP' | awk '/ingress_time/ { printf("%s.%s\n"
 To better understand how Ethernet traffic introduce PTP Master and Slave clock jitter we capture port 319 and 320 traffic and build statistics over significantly large number PTP packets (NB: TAI vs UTC time diff is 36s today e.q 3600000000.0 in epoch time) 
 
 ```shell
+$ chhmod +x ./stats.sh
+
 sudo tcpdump -i enp2s0 -w ptptmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 319 or port 320 -c 100 && tshark -r ptptmp.pcap -t e -E separator=, -E header=n -2 -R ptp.v2.control==2 -Tfields \
 -e frame.number \
 -e frame.time_epoch \
@@ -339,12 +341,49 @@ $ cmake -DBUILD_SHARED_LIBS=OFF && make
 $ cd ..
 $ make
 ```
+Or use prebuilt executable :
+```shell
+$ chmod +x ./opc-ua-multiple-client
+```
 
 Now open run the client pointing to an already running OPC-UA server at specific IPv4 address and port 4840 :
 ```shell
 $ ./opc-ua-multiple-client opc.tcp://<server#0>:4840 -d <cycle-time in us .ex 250=250us or 60000=60ms> -l <timesptamp logfile>
 ```
 
+
+### Analyzing the OPC-UA traffic latency
+OPC-UA _UA_ReadRequest_ (opcua.servicenodeid.numeric==634) can be easily analyzed & measured using [Wireshark OPC-UA Binary Filters] (./tshark_opcua-filters_fields.md)
+
+```shell
+$ chhmod +x ./stats.sh
+
+$ sudo tcpdump -i enp2s0 -w tmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 4840 or port 319 or port 320 -c 10000 && tshark -r tmp.pcap -t e -2 -R opcua.servicenodeid.numeric==634 -E separator=, -E header=n -Tfields \
+-e frame.number \
+-e frame.time_epoch \
+-e opcua.nodeid.string  \
+-e  opcua.datavalue.SourceTimestamp > tmp.out && python ./opcua-ts_offset.py -i tmp.out -o 420000000.0 > tmp.out.off && head tmp.out.off && ./stats.sh -c 1 -f tmp.out.off
+tcpdump: listening on enp2s0, link-type EN10MB (Ethernet), capture size 262144 bytes
+1000 packets captured
+1002 packets received by filter
+0 packets dropped by kernel
+250.0
+363.0
+358.0
+351.0
+348.0
+339.0
+354.0
+393.0
+361.0
+355.0
+min:    +1.660000e+02
+max:    +6.260000e+02
+pk-pk:  +4.600000e+02
+mean:   +3.536918e+02
+stddev: +4.887878e+01
+count:   305
+```
 
 ### Multiple OPC-UA Server 
 
@@ -593,53 +632,22 @@ int main(int argc, char *argv[])
 ```
 
 ### Putting it all together, 
-In this example, you can use the Makefile to handle compilation :
+In this example, you can either use the Makefile to handle compilation :
 ```shell
 $ make
+```
+Or use prebuilt executable :
+```shell
+$ chmod +x ./opc-ua-multiple-server
 ```
 
 Now open run OPC-UA server on port 4840 your the UP2 :
 ```shell
-$ make
 $ sudo ./opc-ua-multiple-server -d /dev/rtc0
 
 ```
-
-### Analyzing the OPC-UA traffic latency
-OPC-UA _UA_ReadRequest_ (opcua.servicenodeid.numeric==634) can be easily analyzed & measured using [Wireshark OPC-UA Binary Filters] (./tshark_opcua-filters_fields.md)
-
-```shell
-$ chhmod +x ./stats.sh
-
-$ sudo tcpdump -i enp2s0 -w tmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 4840 or port 319 or port 320 -c 10000 && tshark -r tmp.pcap -t e -2 -R opcua.servicenodeid.numeric==634 -E separator=, -E header=n -Tfields \
--e frame.number \
--e frame.time_epoch \
--e opcua.nodeid.string  \
--e  opcua.datavalue.SourceTimestamp > tmp.out && python ./opcua-ts_offset.py -i tmp.out -o 420000000.0 > tmp.out.off && head tmp.out.off && ./stats.sh -c 1 -f tmp.out.off
-tcpdump: listening on enp2s0, link-type EN10MB (Ethernet), capture size 262144 bytes
-1000 packets captured
-1002 packets received by filter
-0 packets dropped by kernel
-250.0
-363.0
-358.0
-351.0
-348.0
-339.0
-354.0
-393.0
-361.0
-355.0
-min:    +1.660000e+02
-max:    +6.260000e+02
-pk-pk:  +4.600000e+02
-mean:   +3.536918e+02
-stddev: +4.887878e+01
-count:   305
-```
-
-## BONUS EXERCISE
-Modify the OPC-UA Server sample code to "Add a new variable node" responding with Sensor value and upon _ReadRequest_ every using the Groove Sensors Kits. For example, [Rotary Sensor](https://github.com/SSG-DRD-IOT/lab-rotary-angle-sensor-c) or any other  
+### BONUS EXERCISE
+Modify the OPC-UA Server sample code to "Add a new variable node" responding with Sensor value and upon _ReadRequest_ every using the Groove Sensors Kits. For help, please look at [Sensors and Actuators labs series](https://github.com/SSG-DRD-IOT/toc-sensors) to  get started with Sensor example. 
 
 Congratulations! PTP network time-synchrnoization and OPUC-UA client-server applications can live happily ever after in a Time Synchronize Network (IEEE 801.2/TSN) world ... more to come ;-)
 
