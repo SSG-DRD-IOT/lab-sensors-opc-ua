@@ -47,18 +47,21 @@ sudo pmc -u -b 0 'GET CURRENT_DATA_SET'
 sudo pmc -u -b 0 'GET PORT_DATA_SET'
 ```
 
-Adjust RTC and System clocks:
+Optionaly, to check if RTC and System clocks need to be adjusted run the following command :
 ```shell
-$ sudo hwclock -u --rtc /dev/rtc0 && sudo date -u
-Tue 05 Jun 2018 09:22:42 UTC  .045091 seconds
-Tue 05 Jun 2018 09:23:07 UTC
+$ sudo hwclock --compare
+hw-time      system-time         freq-offset-ppm   tick
+1531730098   1531730098.024649
+1531730108   1531730108.026846               220      2
+1531730118   1531730118.028162               176      2
+^C
 
 $ chmod +x ./adjtimex
 $ sudo ./adjtimex --adjust
 
-$ sudo hwclock -u --rtc /dev/rtc0 && sudo date -u
-Tue 05 Jun 2018 09:26:50 UTC  .201350 seconds
-Tue 05 Jun 2018 09:26:51 UTC
+$ sudo hwclock --rtc /dev/rtc0 && sudo date
+Mon 16 Jul 2018 01:34:00 AM PDT  .685809 seconds
+Mon Jul 16 01:34:01 PDT 2018
 ```
 
 Finally, we check the specific NIC PTP time-synchronized clocks system as followed:
@@ -122,6 +125,226 @@ A working [Makefile](./Makefile) is also provided.
 
 IMPORTANT!! This example is based of sligthly older library open62541 release 0.2 (commit: 24604543cd071ad04b6a19ad07b8456cd0c91340). 
 To avoid compile errors, please make sure you clone & checkout exacly this commit or use makefile that link with prebuilt static libraries are availables under this repo.
+
+### Multiple OPC-UA Clients 
+
+Open62541 provides both a server and client side API, so creating a client is as easy as creating a server.
+
+Here the clients sent _UA_ReadRequest_ within a user-defined cycle-time and  server list to get Time-stamp node value, then store into a log file.     
+```c
+static char *get_name(char *base)
+{
+    char *name;
+
+    /* Extract the name from base. */
+    name = strrchr(base, '/');
+    name = name ? name + 1 : base;
+
+    return name;
+}
+
+static void sig_handler(int sig)
+{
+    /* Reset signal. */
+    signal(sig, sig_handler);
+    LOG("Received signal %d\n", sig);
+    running = 0;
+}
+
+static void usage(char *prog_name)
+{
+    fprintf(stderr,
+            "Usage: %s servers [options]\n"
+            "Servers:\n"
+            "  List of OPC UA servers, separated by space\n"
+            "  e.g. opc.tcp://<IPv4 server address>:4840\n"
+            "Options:\n"
+            "  -d value    Delay in usec between every read request.\n"
+            "     Default: %d\n"
+            "  -l name     Log file name.\n"
+            "     Default: %s\n"
+            "  -h          Print this message and exit.\n"
+            "  -v          Verbose output\n"
+            "",
+            prog_name,
+            DELAY_USEC,
+            DEFAULT_LOG);
+}
+
+int main(int argc, char *argv[])
+{
+    int delay_s, delay_us, fd, i, m, n;
+    struct timeval tv;
+    char buf[MAX_BUF_LINE];
+    char *log_fn, *prog_name;
+    char *endpoint[MAX_SERVERS];
+    UA_Client *client[MAX_SERVERS];
+    UA_StatusCode retval;
+    UA_String value;
+    UA_ReadResponse read_resp;
+    UA_ReadRequest read_req;
+
+    /* Installing signal handlers. */
+    signal(SIGHUP, sig_handler);
+    signal(SIGINT, sig_handler);
+    signal(SIGQUIT, sig_handler);
+
+    delay_s = 0;
+    delay_us = DELAY_USEC;
+    log_fn = DEFAULT_LOG;
+    prog_name = get_name(argv[0]);
+    for (i = 0; i < MAX_SERVERS; i++) {
+        endpoint[i] = NULL;
+        client[i] = NULL;
+    }
+
+    /* Connect to servers (client) if the URL is valid. */
+    for (m = n = 0, i = 1; i < argc; i++) {
+        if (argv[i][0] == '-') {
+            switch (argv[i][1]) {
+            case 'd':
+                if (++i < argc) {
+                    delay_us = strtol(argv[i], NULL, 0);
+                    LOG("%d: Set delay to %d usec\n", i, delay_us);
+                    break;
+                }
+                usage(prog_name);
+                return -1;
+            case 'l':
+                if (++i < argc) {
+                    log_fn = argv[i];
+                    LOG("%d: Save the log to '%s'\n", i, log_fn);
+                    break;
+                }
+                usage(prog_name);
+                return -1;
+            case 'v':
+                verbose++;
+                break;
+            default:
+                usage(prog_name);
+                return -1;
+            }
+        } else if (strncmp("opc.tcp://", argv[i], 10) == 0) {
+            if (n < MAX_SERVERS) {
+                LOG("Saving server#%d: %s\n", n, argv[i]);
+                endpoint[n] = argv[i];
+                m = ++n;
+            } else {
+                if (m == n) {
+                    fprintf(stderr, "Not enough buffer to store servers.\n"
+                                    "Please consider increase the buffer size (%d).\n",
+                            m);
+                    fprintf(stderr, "The following servers are not connected:\n");
+                }
+                fprintf(stderr, "%d: Ignoring server#%d: %s\n", i, m, argv[i]);
+                ++m;
+            }
+        } else {
+            fprintf(stderr, "%d: Ignoring server not start with \"opc.tcp://\": %s\n",
+                    i, argv[i]);
+        }
+    }
+    if (n == 0) {
+        fprintf(stderr, "No server is specified!\nExit now.\n");
+        usage(prog_name);
+        return 0;
+    }
+
+    LOG("Number of servers to connect: %d\n", n);
+    for (m = i = 0; i < n; i++) {
+        LOG("Connecting server#%d: %s\n", i, endpoint[i]);
+
+        /* Create a client and connect. */
+        client[m] = UA_Client_new(UA_ClientConfig_standard);
+
+        /* Connect with username would be:
+         * retval = UA_Client_connect_username(client, "opc.tcp://localhost:4840", "user1", "password");
+         */
+        retval = UA_Client_connect(client[m], endpoint[i]);
+        if (retval != UA_STATUSCODE_GOOD) {
+            fprintf(stderr, "Unable to connect to server#%d: %s\n", i, endpoint[i]);
+            UA_Client_delete(client[m]);
+            client[m] = NULL;
+            endpoint[i] = NULL;
+            continue;
+        }
+
+        LOG("Server#%d connected: %s\n", m, endpoint[i]);
+        ++m;
+    }
+    n = m;
+    LOG("Number of servers connected: %d\n", n);
+
+    /* Create a ReadRequest with one entry. */
+    UA_ReadRequest_init(&read_req);
+    read_req.nodesToRead = UA_Array_new(1, &UA_TYPES[UA_TYPES_READVALUEID]);
+    read_req.nodesToReadSize = 1;
+    /* Define the node and attribute to be read. */
+    read_req.nodesToRead[0].nodeId = UA_NODEID_STRING_ALLOC(1, "time.stamp");
+    read_req.nodesToRead[0].attributeId = UA_ATTRIBUTEID_VALUE;
+
+    fd = open(log_fn, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0)
+        fprintf(stderr, "Fail to open log file '%s'\n", log_fn);
+    else
+        LOG("Writing log to '%s'\n", log_fn);
+
+    delay_s = delay_us / 1000000;
+    delay_us = delay_us % 1000000;
+    while (running) {
+        for (i = 0; i < n; i++) {
+            read_resp = UA_Client_Service_read(client[i], read_req);
+            if ((read_resp.responseHeader.serviceResult == UA_STATUSCODE_GOOD) &&
+                (read_resp.resultsSize > 0) &&
+                (read_resp.results[0].hasValue) &&
+                (read_resp.results[0].value.type == &UA_TYPES[UA_TYPES_STRING])) {
+                value = *(UA_String *)read_resp.results[0].value.data;
+                value.data[value.length] = 0;
+                LOG("server#%d: %s\n", i, value.data);
+                if (fd >= 0) {
+                    snprintf(buf, sizeof(buf), "server#%d: %s\n", i, value.data);
+                    write(fd, buf, strlen(buf));
+                }
+            }
+            UA_ReadResponse_deleteMembers(&read_resp);
+        }
+
+        /* Delay some time before next read. */
+        tv.tv_sec = delay_s;
+        tv.tv_usec = delay_us;
+        select(1, NULL, NULL, NULL, &tv);
+    }
+
+    if (fd >= 0)
+        close(fd);
+
+    UA_ReadRequest_deleteMembers(&read_req);
+
+    /* Disconnect from servers. */
+    for (i = n - 1; i >= 0; i--) {
+        UA_Client_disconnect(client[i]);
+        UA_Client_delete(client[i]);
+    }
+
+    return 0;
+}
+```
+
+### Putting it all together, 
+In this example, you can use the Makefile to handle compilation :
+```shell
+$ cd open62541
+$ cmake -DBUILD_SHARED_LIBS=OFF && make
+$ cd ..
+$ make
+```
+
+Now open run the client pointing to an already running OPC-UA server at specific IPv4 address and port 4840 :
+```shell
+$ ./opc-ua-multiple-client opc.tcp://<server#0>:4840 -d <cycle-time in us .ex 250=250us or 60000=60ms> -l <timesptamp logfile>
+```
+
 
 ### Multiple OPC-UA Server 
 
@@ -369,234 +592,25 @@ int main(int argc, char *argv[])
 }
 ```
 
-### Multiple OPC-UA Clients 
-
-Open62541 provides both a server and client side API, so creating a client is as easy as creating a server.
-
-Here the clients sent _UA_ReadRequest_ within a user-defined cycle-time and  server list to get Time-stamp node value, then store into a log file.     
-```c
-static char *get_name(char *base)
-{
-    char *name;
-
-    /* Extract the name from base. */
-    name = strrchr(base, '/');
-    name = name ? name + 1 : base;
-
-    return name;
-}
-
-static void sig_handler(int sig)
-{
-    /* Reset signal. */
-    signal(sig, sig_handler);
-    LOG("Received signal %d\n", sig);
-    running = 0;
-}
-
-static void usage(char *prog_name)
-{
-    fprintf(stderr,
-            "Usage: %s servers [options]\n"
-            "Servers:\n"
-            "  List of OPC UA servers, separated by space\n"
-            "  e.g. opc.tcp://<IPv4 server address>:4840\n"
-            "Options:\n"
-            "  -d value    Delay in usec between every read request.\n"
-            "     Default: %d\n"
-            "  -l name     Log file name.\n"
-            "     Default: %s\n"
-            "  -h          Print this message and exit.\n"
-            "  -v          Verbose output\n"
-            "",
-            prog_name,
-            DELAY_USEC,
-            DEFAULT_LOG);
-}
-
-int main(int argc, char *argv[])
-{
-    int delay_s, delay_us, fd, i, m, n;
-    struct timeval tv;
-    char buf[MAX_BUF_LINE];
-    char *log_fn, *prog_name;
-    char *endpoint[MAX_SERVERS];
-    UA_Client *client[MAX_SERVERS];
-    UA_StatusCode retval;
-    UA_String value;
-    UA_ReadResponse read_resp;
-    UA_ReadRequest read_req;
-
-    /* Installing signal handlers. */
-    signal(SIGHUP, sig_handler);
-    signal(SIGINT, sig_handler);
-    signal(SIGQUIT, sig_handler);
-
-    delay_s = 0;
-    delay_us = DELAY_USEC;
-    log_fn = DEFAULT_LOG;
-    prog_name = get_name(argv[0]);
-    for (i = 0; i < MAX_SERVERS; i++) {
-        endpoint[i] = NULL;
-        client[i] = NULL;
-    }
-
-    /* Connect to servers (client) if the URL is valid. */
-    for (m = n = 0, i = 1; i < argc; i++) {
-        if (argv[i][0] == '-') {
-            switch (argv[i][1]) {
-            case 'd':
-                if (++i < argc) {
-                    delay_us = strtol(argv[i], NULL, 0);
-                    LOG("%d: Set delay to %d usec\n", i, delay_us);
-                    break;
-                }
-                usage(prog_name);
-                return -1;
-            case 'l':
-                if (++i < argc) {
-                    log_fn = argv[i];
-                    LOG("%d: Save the log to '%s'\n", i, log_fn);
-                    break;
-                }
-                usage(prog_name);
-                return -1;
-            case 'v':
-                verbose++;
-                break;
-            default:
-                usage(prog_name);
-                return -1;
-            }
-        } else if (strncmp("opc.tcp://", argv[i], 10) == 0) {
-            if (n < MAX_SERVERS) {
-                LOG("Saving server#%d: %s\n", n, argv[i]);
-                endpoint[n] = argv[i];
-                m = ++n;
-            } else {
-                if (m == n) {
-                    fprintf(stderr, "Not enough buffer to store servers.\n"
-                                    "Please consider increase the buffer size (%d).\n",
-                            m);
-                    fprintf(stderr, "The following servers are not connected:\n");
-                }
-                fprintf(stderr, "%d: Ignoring server#%d: %s\n", i, m, argv[i]);
-                ++m;
-            }
-        } else {
-            fprintf(stderr, "%d: Ignoring server not start with \"opc.tcp://\": %s\n",
-                    i, argv[i]);
-        }
-    }
-    if (n == 0) {
-        fprintf(stderr, "No server is specified!\nExit now.\n");
-        usage(prog_name);
-        return 0;
-    }
-
-    LOG("Number of servers to connect: %d\n", n);
-    for (m = i = 0; i < n; i++) {
-        LOG("Connecting server#%d: %s\n", i, endpoint[i]);
-
-        /* Create a client and connect. */
-        client[m] = UA_Client_new(UA_ClientConfig_standard);
-
-        /* Connect with username would be:
-         * retval = UA_Client_connect_username(client, "opc.tcp://localhost:4840", "user1", "password");
-         */
-        retval = UA_Client_connect(client[m], endpoint[i]);
-        if (retval != UA_STATUSCODE_GOOD) {
-            fprintf(stderr, "Unable to connect to server#%d: %s\n", i, endpoint[i]);
-            UA_Client_delete(client[m]);
-            client[m] = NULL;
-            endpoint[i] = NULL;
-            continue;
-        }
-
-        LOG("Server#%d connected: %s\n", m, endpoint[i]);
-        ++m;
-    }
-    n = m;
-    LOG("Number of servers connected: %d\n", n);
-
-    /* Create a ReadRequest with one entry. */
-    UA_ReadRequest_init(&read_req);
-    read_req.nodesToRead = UA_Array_new(1, &UA_TYPES[UA_TYPES_READVALUEID]);
-    read_req.nodesToReadSize = 1;
-    /* Define the node and attribute to be read. */
-    read_req.nodesToRead[0].nodeId = UA_NODEID_STRING_ALLOC(1, "time.stamp");
-    read_req.nodesToRead[0].attributeId = UA_ATTRIBUTEID_VALUE;
-
-    fd = open(log_fn, O_WRONLY | O_CREAT | O_TRUNC);
-    if (fd < 0)
-        fprintf(stderr, "Fail to open log file '%s'\n", log_fn);
-    else
-        LOG("Writing log to '%s'\n", log_fn);
-
-    delay_s = delay_us / 1000000;
-    delay_us = delay_us % 1000000;
-    while (running) {
-        for (i = 0; i < n; i++) {
-            read_resp = UA_Client_Service_read(client[i], read_req);
-            if ((read_resp.responseHeader.serviceResult == UA_STATUSCODE_GOOD) &&
-                (read_resp.resultsSize > 0) &&
-                (read_resp.results[0].hasValue) &&
-                (read_resp.results[0].value.type == &UA_TYPES[UA_TYPES_STRING])) {
-                value = *(UA_String *)read_resp.results[0].value.data;
-                value.data[value.length] = 0;
-                LOG("server#%d: %s\n", i, value.data);
-                if (fd >= 0) {
-                    snprintf(buf, sizeof(buf), "server#%d: %s\n", i, value.data);
-                    write(fd, buf, strlen(buf));
-                }
-            }
-            UA_ReadResponse_deleteMembers(&read_resp);
-        }
-
-        /* Delay some time before next read. */
-        tv.tv_sec = delay_s;
-        tv.tv_usec = delay_us;
-        select(1, NULL, NULL, NULL, &tv);
-    }
-
-    if (fd >= 0)
-        close(fd);
-
-    UA_ReadRequest_deleteMembers(&read_req);
-
-    /* Disconnect from servers. */
-    for (i = n - 1; i >= 0; i--) {
-        UA_Client_disconnect(client[i]);
-        UA_Client_delete(client[i]);
-    }
-
-    return 0;
-}
-```
-
-In this example you can use the Makefile to handle compilation :
+### Putting it all together, 
+In this example, you can use the Makefile to handle compilation :
 ```shell
-$ cd open62541
-$ cmake -DBUILD_SHARED_LIBS=OFF && make
-$ cd ..
 $ make
 ```
 
-### Putting it all together, 
-Run the server localy or remotly from  another machine :
+Now open run OPC-UA server on port 4840 your the UP2 :
 ```shell
+$ make
 $ sudo ./opc-ua-multiple-server -d /dev/rtc0
-```
 
-Now open run the client pointing to OPC-UA server IPv4 address and port 4840 :
-```shell
-$ ./opc-ua-multiple-client opc.tcp://<server#0>:4840 -d <cycle-time in us .ex 250=250us or 60000=60ms> -l <timesptamp logfile>
 ```
 
 ### Analyzing the OPC-UA traffic latency
 OPC-UA _UA_ReadRequest_ (opcua.servicenodeid.numeric==634) can be easily analyzed & measured using [Wireshark OPC-UA Binary Filters] (./tshark_opcua-filters_fields.md)
 
 ```shell
+$ chhmod +x ./stats.sh
+
 $ sudo tcpdump -i enp2s0 -w tmp.pcap -j adapter_unsynced -tt --time-stamp-precision=nano port 4840 or port 319 or port 320 -c 10000 && tshark -r tmp.pcap -t e -2 -R opcua.servicenodeid.numeric==634 -E separator=, -E header=n -Tfields \
 -e frame.number \
 -e frame.time_epoch \
@@ -623,6 +637,9 @@ mean:   +3.536918e+02
 stddev: +4.887878e+01
 count:   305
 ```
+
+## BONUS EXERCISE
+Modify the OPC-UA Server sample code to "Add a new variable node" responding with Sensor value and upon _ReadRequest_ every using the Groove Sensors Kits. For example, [Rotary Sensor](https://github.com/SSG-DRD-IOT/lab-rotary-angle-sensor-c) or any other  
 
 Congratulations! PTP network time-synchrnoization and OPUC-UA client-server applications can live happily ever after in a Time Synchronize Network (IEEE 801.2/TSN) world ... more to come ;-)
 
