@@ -9,7 +9,7 @@ https://www.nist.gov/el/intelligent-systems-division-73500/ieee-1588
  IEEE standard 1588 Precision Time Protocol (PTP) support is provide in every linux distribution including http://manpages.ubuntu.com/manpages/bionic/man8/ptp4l.8.html 
 ```shell
 $ sudo apt-get install ethtool linuxptp tshark
-git clone https://github.com/SSG-DRD-IOT/lab-sensors-opc-ua.git -b milano-workshop
+cd /home/upsquared/workshop/
 mv lab-sensors-opc-ua lab-timing-opc-ua
 cd lab-timing-opc-ua
 ```
